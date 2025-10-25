@@ -10,13 +10,11 @@ jobs:
     runs-on: ubuntu-latest
     name: Verify Author Checklist
     steps:
-      - name: Add PR checklist comment
-        uses: mheap/github-action-checklist@v2
+      - uses: actions/github-script@v6
         with:
-          token: ${{ secrets.GITHUB_TOKEN }}
-          comment: |
-            ## 🧾 Author Checklist
-            
+          script: |
+            const checklistComment = `## 🧾 Author Checklist
+
             Please confirm that you have completed each of the following before requesting review.  
             All items **must be checked** to proceed.
 
@@ -46,9 +44,44 @@ jobs:
 
             ---
             **Instructions:**
-            1. Check each box (`[x]`) once completed  
+            1. Check each box (\`[x]\`) once completed  
             2. Workflow fails until all are checked  
-            3. Once all pass, PR will be ready for review
+            3. Once all pass, PR will be ready for review`;
+
+            const { data: comments } = await github.rest.issues.listComments({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number
+            });
+
+            const botComment = comments.find(comment => 
+              comment.user.type === 'Bot' && 
+              comment.body.includes('Author Checklist')
+            );
+
+            if (botComment) {
+              await github.rest.issues.updateComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                comment_id: botComment.id,
+                body: checklistComment
+              });
+            } else {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.issue.number,
+                body: checklistComment
+              });
+            }
+
+            // Check if all boxes are checked
+            const prBody = context.payload.pull_request.body || '';
+            const uncheckedBoxes = (prBody.match(/\[[\s]]/g) || []).length;
+            
+            if (uncheckedBoxes > 0) {
+              core.setFailed('Not all checklist items are checked. Please complete the checklist.');
+            }
 
   chart-validation:
     runs-on: ubuntu-latest
